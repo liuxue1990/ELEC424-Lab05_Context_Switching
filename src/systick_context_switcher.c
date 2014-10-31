@@ -23,7 +23,7 @@
   ******************************************************************************
   */
 
-#define TASK_STK_SIZE      116
+#define TASK_STK_SIZE      100
 #define OS_MAX_TASK_NUM    2
 #define OS_TCB_NOT_IN_USE  ((uint8_t)0x00)
 #define OS_TCB_IN_USE      ((uint8_t)0x01)
@@ -155,7 +155,7 @@ void main(void) {
         stk_frame->r2 = 0;
         stk_frame->r12 = 0;
         stk_frame->pc = (uint32_t)task;
-        stk_frame->lr = (uint32_t)task;
+        stk_frame->lr = 0;
         stk_frame->psr = OS_DEFAULT_PSR_VAL;
         OS_TCB_Tbl[idx].OS_TCB_Stat = OS_TCB_IN_USE;
         OS_TCB_Tbl[idx].OS_TCB_ID = idx;
@@ -186,7 +186,7 @@ static inline void Start_Task(OS_TCB* ptcb){
   OS_STK* ptos;
   OS_HW_STK *stk_frame;
   uint32_t scratch;
-  
+
   ptos = ptcb->OS_TCB_Stk_Ptr + sizeof(OS_HW_STK) / sizeof(uint32_t) + sizeof(OS_SW_STK) / sizeof(uint32_t);
   stk_frame = (OS_HW_STK*)(ptcb->OS_TCB_Stk_Ptr + sizeof(OS_SW_STK) / sizeof(uint32_t));
   __asm volatile("MOV r1, #2\n\t"
@@ -211,20 +211,26 @@ static inline OS_STK* Rd_Main_Stk_Ptr(void){
  * register automatically when do the context switching
  */
 static inline void Save_Context(void){
-  uint32_t scratch;
-  __asm volatile("MRS %0, psp\n\t"
-    "LDMFD %0!, {r4-r11}\n\t"
-    "MSR psp, %0\n\t" : "=r"(scratch));
+  // uint32_t scratch;
+  __asm volatile("MRS r12, psp\n\t");
+  __asm volatile("STMDB r12!, {r4-r11}\n\t");
+  __asm volatile("MSR psp, r12\n\t");
+  // __asm volatile("MRS r12, psp\n\t"
+  //   "LDMFD r12!, {r4-r11}\n\t"
+  //   "MSR psp, r12\n\t");
 }
 /**
  * @brief load 
  * @details [long description]
  */
 static inline void Load_Context(void){
-  uint32_t scratch;
-  __asm volatile("MRS %0, PSP\n\t"
-    "LDMFD %0!, {r4-r11}\n\t"
-    "MSR psp, %0\n\t" : "=r" (scratch));
+  // uint32_t scratch;
+  // __asm volatile("MRS %0, PSP\n\t"
+  //   "LDMFD %0!, {r4-r11}\n\t"
+  //   "MSR psp, %0\n\t" : "=r" (scratch)); 
+  __asm volatile("MRS r12, PSP\n\t"
+    "LDMFD r12!, {r4-r11}\n\t"
+    "MSR psp, r12\n\t");
 }
 /**
  * @brief read task stack pointer
@@ -252,7 +258,7 @@ static inline void Wr_Task_Stk_Ptr(OS_STK *ptr){
 
 void SysTick_Handler(void){
   systick_counter++;
-  if (systick_counter == 50)
+  if (systick_counter == 10)
   {
     systick_counter = 0;
     Save_Context();

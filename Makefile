@@ -52,7 +52,7 @@ OBJS = $(STARTUP_PATH)/startup_stm32f10x_md.s \
 
 ELF_FILE = $(PRO_BIN)/$(FILENAME).elf
 # Build all relevant files and create .elf
-all: compile flash
+all: compile kill flash debug
 
 compile:
 	@$(CC) $(CFLAGS) $(CLIBS) $(OBJS) -o $(ELF_FILE)
@@ -65,7 +65,7 @@ flash:
 # Runs OpenOCD, opens GDB terminal, and establishes connection with Crazyflie
 debug:
 	openocd $(OCDFLAG) &
-	arm-none-eabi-gdb -tui $(ELF_FILE) --eval-command="target remote:3333" 
+	arm-none-eabi-gdb -tui $(ELF_FILE) --eval-command="target remote:3333" --eval-command="monitor reset halt"
 	ps ax | grep openocd |grep -v grep | awk '{print "kill " $$1}' | sh
 
 #Kill openocd when for some reason openocd haven't closed automatically
