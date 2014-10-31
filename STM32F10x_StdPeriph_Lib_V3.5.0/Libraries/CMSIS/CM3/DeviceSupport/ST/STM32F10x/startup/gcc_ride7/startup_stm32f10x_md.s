@@ -35,6 +35,7 @@
 
 .global	g_pfnVectors
 .global	Default_Handler
+.global _estack
 
 /* start address for the initialization values of the .data section. 
 defined in linker script */
