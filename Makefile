@@ -29,7 +29,7 @@ CC = arm-none-eabi-gcc
 PROCESSOR = -mcpu=cortex-m3 -mthumb
 
 # Directories of used header files
-INCLUDE = -I$(PRO_INC) -I$(DEV_LIB)/inc -I$(SYS_LIB) -I$(CORE_LIB)
+INCLUDE = -I$(PRO_INC) -I$(DEV_LIB)/inc -I$(SYS_LIB) -I$(CORE_LIB) 
 
 # Static Library
 
@@ -44,6 +44,8 @@ CFLAGS = -O0 -g3 $(PROCESSOR) $(INCLUDE) $(STFLAGS) -Wl,--gc-sections -T $(PRO_L
 
 # object files
 OBJS = $(STARTUP_PATH)/startup_stm32f10x_md.s \
+	$(PRO_SRC)/systick_context_switcher.s\
+	$(CORE_LIB)/core_cm3.c\
 	$(PRO_SRC)/systick_context_switcher.c \
 	$(PRO_SRC)/sys_clk_init.c\
 	$(PRO_LIB)/libtasks.a\
@@ -52,7 +54,7 @@ OBJS = $(STARTUP_PATH)/startup_stm32f10x_md.s \
 
 ELF_FILE = $(PRO_BIN)/$(FILENAME).elf
 # Build all relevant files and create .elf
-all: compile kill flash debug
+all: compile kill flash
 
 compile:
 	@$(CC) $(CFLAGS) $(CLIBS) $(OBJS) -o $(ELF_FILE)
@@ -65,7 +67,7 @@ flash:
 # Runs OpenOCD, opens GDB terminal, and establishes connection with Crazyflie
 debug:
 	openocd $(OCDFLAG) &
-	arm-none-eabi-gdb -tui $(ELF_FILE) --eval-command="target remote:3333" --eval-command="monitor reset halt"
+	arm-none-eabi-gdb -tui $(ELF_FILE) # --eval-command="target remote:3333" --eval-command="monitor reset halt"
 	ps ax | grep openocd |grep -v grep | awk '{print "kill " $$1}' | sh
 
 #Kill openocd when for some reason openocd haven't closed automatically

@@ -111,6 +111,7 @@ LoopFillZerobss:
     .section	.text.Default_Handler,"ax",%progbits
 Default_Handler:
 Infinite_Loop:
+	MRS r12, psp
 	b	Infinite_Loop
 	.size	Default_Handler, .-Default_Handler
 /******************************************************************************

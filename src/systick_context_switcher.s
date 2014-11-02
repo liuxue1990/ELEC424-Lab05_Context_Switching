@@ -1,19 +1,18 @@
-.syntax		unified
-.cpu		cortex-m3
-.fpu		softvfp
+.cpu cortex-m3
+.fpu softvfp   
+.syntax unified 
 .thumb
-.file	"systick_context_switcher.s"
-
 .text
-.align 2
-.global __asm_reset_thread
-.thumb
+.global  SysTick_Handler
 .thumb_func
-__asm_start_thread:
-    ldr     r1,=msp_top
-    msr     msp,r1		    
-    mov     r1,#2
-    msr     control,r1         
-    ldr     sp,[r0]
-    bl      int_half_enable_asyn_signal
-    svc     0   
+SysTick_Handler:
+	PUSH {lr}
+	MRS r12, psp
+	STMDB r12!, {r4-r11}
+	MSR psp, r12
+    LDR     R0, =OS_Scheduler
+    BLX     R0
+	MRS r12, PSP
+    LDMFD r12!, {r4-r11}
+    MSR psp, r12
+    POP {pc}
