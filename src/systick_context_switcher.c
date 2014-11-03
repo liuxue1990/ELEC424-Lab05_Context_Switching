@@ -70,7 +70,7 @@ typedef struct {
 } OS_SW_STK;
 
 OS_TCB OS_TCB_Tbl[OS_MAX_TASK_NUM];
-uint8_t OS_Cur_Task = 0;
+uint8_t OS_Cur_Task = 1;
 uint8_t OS_TCB_Tbl_Next = 0;
 
 OS_STK Task_Spin_Motors_Stk[TASK_STK_SIZE];
@@ -88,11 +88,6 @@ static uint32_t systick_counter;
   void OS_Scheduler(void);
   void OS_Task_Return_Exception(void);
   static inline void Start_Task(OS_TCB* ptcb);
-  static inline OS_STK* Rd_Main_Stk_Ptr(void);
-  static inline void Save_Context(void);
-  static inline void Load_Context(void);
-  static inline OS_STK* Rd_Task_Stk_Ptr(void);
-  static inline void Wr_Task_Stk_Ptr(OS_STK *ptr);
 /**
  *
   ******************************************************************************
@@ -130,8 +125,7 @@ void main(void) {
     // NVIC_SetPriority(SysTick_IRQn, DEV_MIDDLE_PRIORITY);
   }
   void OS_Start(void){
-    Start_Task(&OS_TCB_Tbl[1]);
-    // NVIC_SetPriority(SysTick_IRQn, DEV_MIDDLE_PRIORITY);
+    Start_Task(&OS_TCB_Tbl[OS_Cur_Task]);
   }
   /**
    * @brief create a task in the os
@@ -154,8 +148,8 @@ void main(void) {
         stk_frame->r1 = 0;
         stk_frame->r2 = 0;
         stk_frame->r12 = 0;
-        stk_frame->pc = (uint32_t)task;
         stk_frame->lr = 0;
+        stk_frame->pc = (uint32_t)task;
         stk_frame->psr = OS_DEFAULT_PSR_VAL;
         OS_TCB_Tbl[idx].OS_TCB_Stat = OS_TCB_IN_USE;
         OS_TCB_Tbl[idx].OS_TCB_ID = idx;
@@ -168,11 +162,13 @@ void main(void) {
   }
 
   void OS_Scheduler(void){
-    OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr = Rd_Task_Stk_Ptr();
+    uint32_t scratch;
+    scratch = __get_PSP();
+    OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr = (OS_STK*)scratch;
     OS_Cur_Task++;
     if (OS_Cur_Task == OS_MAX_TASK_NUM)
       OS_Cur_Task = 0;
-    Wr_Task_Stk_Ptr(OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr);
+    __set_PSP((uint32_t)OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr);
   }
   void OS_Task_Return_Exception(void){
     while(1);
@@ -189,35 +185,22 @@ static inline void Start_Task(OS_TCB* ptcb){
 
   ptos = ptcb->OS_TCB_Stk_Ptr + sizeof(OS_HW_STK) / sizeof(uint32_t) + sizeof(OS_SW_STK) / sizeof(uint32_t);
   stk_frame = (OS_HW_STK*)(ptcb->OS_TCB_Stk_Ptr + sizeof(OS_SW_STK) / sizeof(uint32_t));
-  __asm volatile("MOV r1, #2\n\t"
-                 "MSR control, r1\n\t");
-  __asm volatile("MSR psp, %0\n\t"  : :"r"(ptos));
+  __set_CONTROL(2);
+  __set_PSP((uint32_t)ptos);
   scratch = stk_frame->pc;
-  __asm volatile("BX %0" : "=r"(scratch));
+  __ASM volatile("BX %0" : "=r"(scratch));
 }
-/**
- * @brief read the main statck pointer
- * @details read the value of MSP
- * @return address of the main stack
- */
-static inline OS_STK* Rd_Main_Stk_Ptr(void){
-  OS_STK *result = NULL;
-  __asm volatile("MRS %0, msp\n\t"  : "=r" (result));
-  return result;
-}
+
 /**
  * @brief save current context
  * @details save r4-r11 to process stack, the Cortex-m3 pushes the other 
  * register automatically when do the context switching
  */
-static inline void Save_Context(void){
-  // uint32_t scratch;
-  __asm volatile("MRS r12, psp\n\t");
-  __asm volatile("STMDB r12!, {r4-r11}\n\t");
-  __asm volatile("MSR psp, r12\n\t");
-  // __asm volatile("MRS r12, psp\n\t"
-  //   "LDMFD r12!, {r4-r11}\n\t"
-  //   "MSR psp, r12\n\t");
+void __attribute__( ( naked ) ) Save_Context(void){
+    uint32_t scratch;
+    scratch = __get_PSP();
+    __asm volatile("STMDB %0!, {r4-r11}\n\t" : "=r" (scratch));
+    __set_PSP(scratch);
 }
 /**
  * @brief load 
@@ -232,19 +215,7 @@ static inline void Load_Context(void){
     "LDMFD r12!, {r4-r11}\n\t"
     "MSR psp, r12\n\t");
 }
-/**
- * @brief read task stack pointer
- * @details reads the PSP value
- * @return the value of PSP register
- */ 
-static inline OS_STK* Rd_Task_Stk_Ptr(void){
-  OS_STK *result = NULL;
-  __asm volatile("MRS %0, psp\n\t" : "=r"(result));
-  return(result);
-}
-static inline void Wr_Task_Stk_Ptr(OS_STK *ptr){
-  __asm volatile ("MSR psp, %0\n\t"  : :"r"(ptr));
-}
+
 /**
   ******************************************************************************
   * Exception handlers
@@ -255,17 +226,22 @@ static inline void Wr_Task_Stk_Ptr(OS_STK *ptr){
  * @brief SysTick_Handler
  * @details the systick handler
  */
-
-void SysTick_Handler(void){
+void __attribute__( ( naked ) ) SysTick_Handler(void){
+  uint32_t scratch;
   systick_counter++;
-  if (systick_counter == 10)
+  if (systick_counter == 50)
   {
     systick_counter = 0;
-    Save_Context();
+    __asm volatile("push {lr}\n\t");
+    scratch = __get_PSP();
+    __asm volatile("STMDB %0!, {r4-r11}\n\t" : "=r" (scratch));
+    __set_PSP(scratch);
     OS_Scheduler();
-    Load_Context();
+    scratch = __get_PSP();
+    __asm volatile("LDMFD %0!, {r4-r11}\n\t" : "=r" (scratch));
+    __set_PSP(scratch);
+    __asm volatile("pop {pc}\n\t");
   }
-  // GPIOB->ODR ^= GPIO_Pin_5;
 
 }
 
