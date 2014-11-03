@@ -86,7 +86,6 @@ static uint32_t systick_counter;
   void OS_Start(void);
   void OS_Task_Create(void(*task)(void), OS_STK *ptos, uint16_t stk_size);
   void OS_Scheduler(void);
-  void OS_Task_Return_Exception(void);
   static inline void Start_Task(OS_TCB* ptcb);
 /**
  *
@@ -105,7 +104,6 @@ void main(void) {
   init_motors();
   // task_spin_motors();
   // task_blink_led();
-  SysTick_Config(SystemCoreClock / 10);
   OS_Init();
   OS_Task_Create(task_spin_motors, (OS_STK *)&Task_Spin_Motors_Stk, TASK_STK_SIZE);
   OS_Task_Create(task_blink_led, (OS_STK *)&Task_Blink_Led_Stk, TASK_STK_SIZE);
@@ -121,8 +119,12 @@ void main(void) {
   */
 
   void OS_Init(void){
-    // OS_TCB_Tbl[0].OS_TCB_Stk_Ptr = 
-    // NVIC_SetPriority(SysTick_IRQn, DEV_MIDDLE_PRIORITY);
+    NVIC_GetPriority(PendSV_IRQn);
+    NVIC_GetPriority(SysTick_IRQn);
+    // NVIC_SetPriority(PendSV_IRQn, 0xff);
+    __asm_set_pendsv();
+    NVIC_GetPriority(PendSV_IRQn);
+    SysTick_Config(SystemCoreClock / 10);
   }
   void OS_Start(void){
     Start_Task(&OS_TCB_Tbl[OS_Cur_Task]);
@@ -170,9 +172,7 @@ void main(void) {
       OS_Cur_Task = 0;
     __set_PSP((uint32_t)OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr);
   }
-  void OS_Task_Return_Exception(void){
-    while(1);
-  }
+
 /**
   ******************************************************************************
   * ASM Inline functions
@@ -192,31 +192,6 @@ static inline void Start_Task(OS_TCB* ptcb){
 }
 
 /**
- * @brief save current context
- * @details save r4-r11 to process stack, the Cortex-m3 pushes the other 
- * register automatically when do the context switching
- */
-void __attribute__( ( naked ) ) Save_Context(void){
-    uint32_t scratch;
-    scratch = __get_PSP();
-    __asm volatile("STMDB %0!, {r4-r11}\n\t" : "=r" (scratch));
-    __set_PSP(scratch);
-}
-/**
- * @brief load 
- * @details [long description]
- */
-static inline void Load_Context(void){
-  // uint32_t scratch;
-  // __asm volatile("MRS %0, PSP\n\t"
-  //   "LDMFD %0!, {r4-r11}\n\t"
-  //   "MSR psp, %0\n\t" : "=r" (scratch)); 
-  __asm volatile("MRS r12, PSP\n\t"
-    "LDMFD r12!, {r4-r11}\n\t"
-    "MSR psp, r12\n\t");
-}
-
-/**
   ******************************************************************************
   * Exception handlers
   ******************************************************************************
@@ -226,12 +201,23 @@ static inline void Load_Context(void){
  * @brief SysTick_Handler
  * @details the systick handler
  */
-void __attribute__( ( naked ) ) SysTick_Handler(void){
-  uint32_t scratch;
+void SysTick_Handler(void){
   systick_counter++;
   if (systick_counter == 50)
   {
     systick_counter = 0;
+    // NVIC_SetPendingIRQ(PendSV_IRQn);
+    __asm_trigger_pendsv();
+  }
+
+}
+
+/**
+ * @brief PendSV_handler
+ * @details The PendSV handler
+ */
+void __attribute__( ( naked ) ) PendSV_Handler(void){
+    uint32_t scratch;
     __asm volatile("push {lr}\n\t");
     scratch = __get_PSP();
     __asm volatile("STMDB %0!, {r4-r11}\n\t" : "=r" (scratch));
@@ -241,16 +227,6 @@ void __attribute__( ( naked ) ) SysTick_Handler(void){
     __asm volatile("LDMFD %0!, {r4-r11}\n\t" : "=r" (scratch));
     __set_PSP(scratch);
     __asm volatile("pop {pc}\n\t");
-  }
-
-}
-
-/**
- * @brief PendSV_handler
- * @details The PendSV handler
- */
-void PendSV_Handler(void){
-
 }
 /**
   ******************************************************************************
