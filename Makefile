@@ -44,7 +44,6 @@ CFLAGS = -O0 -g3 $(PROCESSOR) $(INCLUDE) $(STFLAGS) -Wl,--gc-sections -T $(PRO_L
 
 # object files
 OBJS = $(STARTUP_PATH)/startup_stm32f10x_md.s \
-	$(PRO_SRC)/systick_context_switcher.s \
 	$(CORE_LIB)/core_cm3.c\
 	$(PRO_SRC)/systick_context_switcher.c \
 	$(PRO_SRC)/sys_clk_init.c\

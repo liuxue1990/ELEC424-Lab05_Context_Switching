@@ -14,17 +14,16 @@
   * Include files
   ******************************************************************************
   */
+#include "systick_context_switcher.h"
 #include "tasks.h"
 #include <stddef.h>
 
   /**
   ******************************************************************************
-  * Defination
+  * Private Defination
   ******************************************************************************
   */
 
-#define TASK_STK_SIZE      100
-#define OS_MAX_TASK_NUM    2
 #define OS_TCB_NOT_IN_USE  ((uint8_t)0x00)
 #define OS_TCB_IN_USE      ((uint8_t)0x01)
 #define OS_DEFAULT_PSR_VAL ((uint32_t)0x21000000)
@@ -35,14 +34,11 @@
   * Global Variables
   ******************************************************************************
   */
-typedef uint32_t OS_STK;
+
 
 typedef struct os_tcb
 {
   OS_STK *OS_TCB_Stk_Ptr;
-  // OS_STK *OS_TCB_Stk_Bottom;
-  // uint32_t OS_TCB_Stk_Size;
-  // struct os_tcb *OS_TCB_Next;
   uint8_t OS_TCB_Stat;
   uint8_t OS_TCB_ID;
 } OS_TCB;
@@ -73,64 +69,40 @@ OS_TCB OS_TCB_Tbl[OS_MAX_TASK_NUM];
 uint8_t OS_Cur_Task = 1;
 uint8_t OS_TCB_Tbl_Next = 0;
 
-OS_STK Task_Spin_Motors_Stk[TASK_STK_SIZE];
-OS_STK Task_Blink_Led_Stk[TASK_STK_SIZE];
-static OS_STK *Main_Stk_Ptr;
+
 static uint32_t systick_counter;
 /**
   ******************************************************************************
   * Private function declaration
   ******************************************************************************
   */
-  void OS_Init(void);
-  void OS_Start(void);
-  void OS_Task_Create(void(*task)(void), OS_STK *ptos, uint16_t stk_size);
+
   void OS_Scheduler(void);
-  static inline void Start_Task(OS_TCB* ptcb);
+  void Start_Task(OS_TCB* ptcb);
+
 /**
- *
   ******************************************************************************
   * Public functions
   ******************************************************************************
   */
-
 /**
- * @brief main
- * @details Main function
+ * @brief Init the OS
+ * @details Initalize the OS
  */
-void main(void) {
-  init_system_clk();
-  init_blink();
-  init_motors();
-  // task_spin_motors();
-  // task_blink_led();
-  OS_Init();
-  OS_Task_Create(task_spin_motors, (OS_STK *)&Task_Spin_Motors_Stk, TASK_STK_SIZE);
-  OS_Task_Create(task_blink_led, (OS_STK *)&Task_Blink_Led_Stk, TASK_STK_SIZE);
-  OS_Start();
-  while (1) {
-    
-  }
-}
-/**
-  ******************************************************************************
-  * Private functions
-  ******************************************************************************
-  */
-
   void OS_Init(void){
-    NVIC_GetPriority(PendSV_IRQn);
-    NVIC_GetPriority(SysTick_IRQn);
-    // NVIC_SetPriority(PendSV_IRQn, 0xff);
-    __asm_set_pendsv();
-    NVIC_GetPriority(PendSV_IRQn);
+    NVIC_SetPriority(PendSV_IRQn, 0xFF);
+    NVIC_GetPriorityGrouping();
     SysTick_Config(SystemCoreClock / 10);
   }
+/**
+ * @brief Start OS running
+ * @details Start OS running
+ */
   void OS_Start(void){
     Start_Task(&OS_TCB_Tbl[OS_Cur_Task]);
   }
   /**
-   * @brief create a task in the os
+   * @brief create a task in the OS
    * @details initilize the stack and 
    * 
    * @param k [description]
@@ -163,6 +135,16 @@ void main(void) {
     __enable_irq();
   }
 
+  /**
+  ******************************************************************************
+  * Private functions
+  ******************************************************************************
+  */
+
+  /**
+   * @brief The OS Scheduler
+   * @details the scheduler for actually scheduling
+   */
   void OS_Scheduler(void){
     uint32_t scratch;
     scratch = __get_PSP();
@@ -174,11 +156,12 @@ void main(void) {
   }
 
 /**
-  ******************************************************************************
-  * ASM Inline functions
-  ******************************************************************************
-  */
-static inline void Start_Task(OS_TCB* ptcb){
+ * @brief Start the very first task
+ * @details start the first task
+ * 
+ * @param ptcb the point to the first switched TCB
+ */
+void Start_Task(OS_TCB* ptcb){
   OS_STK* ptos;
   OS_HW_STK *stk_frame;
   uint32_t scratch;
@@ -187,6 +170,9 @@ static inline void Start_Task(OS_TCB* ptcb){
   stk_frame = (OS_HW_STK*)(ptcb->OS_TCB_Stk_Ptr + sizeof(OS_SW_STK) / sizeof(uint32_t));
   __set_CONTROL(2);
   __set_PSP((uint32_t)ptos);
+  __set_CONTROL(3);
+  __ISB();
+  /*the order here is really important, change it doesn't work */
   scratch = stk_frame->pc;
   __ASM volatile("BX %0" : "=r"(scratch));
 }
@@ -206,8 +192,7 @@ void SysTick_Handler(void){
   if (systick_counter == 50)
   {
     systick_counter = 0;
-    // NVIC_SetPendingIRQ(PendSV_IRQn);
-    __asm_trigger_pendsv();
+    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
   }
 
 }
@@ -228,6 +213,38 @@ void __attribute__( ( naked ) ) PendSV_Handler(void){
     __set_PSP(scratch);
     __asm volatile("pop {pc}\n\t");
 }
+ 
+/**
+ *
+  ******************************************************************************
+  * Here should sperate to another file.
+  ******************************************************************************
+  */
+
+/**
+ *
+  ******************************************************************************
+  * Application Public functions
+  ******************************************************************************
+  */
+
+/**
+ * @brief main
+ * @details Main function
+ */
+void main(void) {
+  init_system_clk();
+  init_blink();
+  init_motors();
+  OS_Init();
+  OS_Task_Create(task_spin_motors, (OS_STK *)&Task_Spin_Motors_Stk, TASK_STK_SIZE);
+  OS_Task_Create(task_blink_led, (OS_STK *)&Task_Blink_Led_Stk, TASK_STK_SIZE);
+  OS_Start();
+  while (1) {
+    
+  }
+}
+
 /**
   ******************************************************************************
   * End of the file
