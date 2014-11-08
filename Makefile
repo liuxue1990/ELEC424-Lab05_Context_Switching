@@ -43,24 +43,31 @@ APPFLAGS = -DPROCISE_DELAY
 CFLAGS = -O0 -g3 $(PROCESSOR) $(INCLUDE) $(STFLAGS) -Wl,--gc-sections -T $(PRO_LINK)/stm32_flash.ld
 
 # object files
-OBJS = $(STARTUP_PATH)/startup_stm32f10x_md.s \
-	$(PRO_SRC)/systick_context_switcher.s\
+OBJS_GEN = $(STARTUP_PATH)/startup_stm32f10x_md.s \
 	$(CORE_LIB)/core_cm3.c\
-	$(PRO_SRC)/systick_context_switcher.c \
 	$(PRO_SRC)/sys_clk_init.c\
 	$(PRO_LIB)/libtasks.a\
 	$(DEV_LIB)/src/misc.c \
 	$(SYS_LIB)/system_stm32f10x.c
 
+OBJS_SYSTICK = $(PRO_SRC)/systick_context_switcher.c $(OBJS_GEN)
+OBJS_PENDSV = $(PRO_SRC)/pendsv_context_switcher.c $(OBJS_GEN)
+
 ELF_FILE = $(PRO_BIN)/$(FILENAME).elf
 # Build all relevant files and create .elf
-all: compile kill flash
+all: systick
 
-compile:
-	@$(CC) $(CFLAGS) $(CLIBS) $(OBJS) -o $(ELF_FILE)
+systick:
+	@echo "Compiling Systick"
+	@$(CC) $(CFLAGS) $(CLIBS) $(OBJS_SYSTICK) -o $(ELF_FILE)
+
+pendsv:
+	@echo "Compiling PendSV"
+	@$(CC) $(CFLAGS) $(CLIBS) $(OBJS_PENDSV) -o $(ELF_FILE)
 
 # Program .elf into Crazyflie flash memory via the busblaster
 OCDFLAG =  -d0 -f interface/busblaster.cfg -f target/stm32f1x.cfg -c init -c targets -c "reset halt" 
+
 flash:
 	@openocd $(OCDFLAG) -c "flash write_image erase $(ELF_FILE)" -c "verify_image $(ELF_FILE)" -c "reset run" -c shutdown
 
