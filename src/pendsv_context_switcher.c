@@ -14,12 +14,16 @@
   * Include files
   ******************************************************************************
   */
+#include "pendsv_context_switcher.h"
 #include "tasks.h"
-#include "systick_context_switcher.h"
 #include <stddef.h>
 
+  /**
+  ******************************************************************************
+  * Private Defination
+  ******************************************************************************
+  */
 
-#define OS_MAX_TASK_NUM    2
 #define OS_TCB_NOT_IN_USE  ((uint8_t)0x00)
 #define OS_TCB_IN_USE      ((uint8_t)0x01)
 #define OS_DEFAULT_PSR_VAL ((uint32_t)0x21000000)
@@ -30,6 +34,7 @@
   * Global Variables
   ******************************************************************************
   */
+
 
 typedef struct os_tcb
 {
@@ -64,40 +69,40 @@ OS_TCB OS_TCB_Tbl[OS_MAX_TASK_NUM];
 uint8_t OS_Cur_Task = 1;
 uint8_t OS_TCB_Tbl_Next = 0;
 
-OS_STK Task_Spin_Motors_Stk[TASK_STK_SIZE];
-OS_STK Task_Blink_Led_Stk[TASK_STK_SIZE];
-static OS_STK *Main_Stk_Ptr;
+
 static uint32_t systick_counter;
 /**
   ******************************************************************************
   * Private function declaration
   ******************************************************************************
   */
+
   void OS_Scheduler(void);
-  static inline void Start_Task(OS_TCB* ptcb);
+  void Start_Task(OS_TCB* ptcb);
 
 /**
   ******************************************************************************
-  * Private functions
+  * Public functions
   ******************************************************************************
   */
-  /**
-   * @brief initiatize the OS
-   * @details [long description]
-   */
+/**
+ * @brief Init the OS
+ * @details Initalize the OS
+ */
   void OS_Init(void){
+    NVIC_SetPriority(PendSV_IRQn, 0xFF);
+    NVIC_GetPriorityGrouping();
     SysTick_Config(SystemCoreClock / 10);
   }
-  /**
-   * @brief start sheduling
-   * @details [long description]
-   */
+/**
+ * @brief Start OS running
+ * @details Start OS running
+ */
   void OS_Start(void){
     Start_Task(&OS_TCB_Tbl[OS_Cur_Task]);
   }
-
   /**
-   * @brief create a task in the os
+   * @brief create a task in the OS
    * @details initilize the stack and 
    * 
    * @param k [description]
@@ -113,16 +118,16 @@ static uint32_t systick_counter;
       if (OS_TCB_Tbl[idx].OS_TCB_Stat == OS_TCB_NOT_IN_USE)
       {
         stk_frame = (OS_HW_STK *)(ptos + stk_size - sizeof(OS_SW_STK) / sizeof(uint32_t));
-        stk_frame->r0 = 0;
+        stk_frame->r0 = 1;
         stk_frame->r1 = 0;
         stk_frame->r2 = 0;
-        stk_frame->r3 = 0;
         stk_frame->r12 = 0;
         stk_frame->lr = 0;
         stk_frame->pc = (uint32_t)task;
         stk_frame->psr = OS_DEFAULT_PSR_VAL;
         OS_TCB_Tbl[idx].OS_TCB_Stat = OS_TCB_IN_USE;
         OS_TCB_Tbl[idx].OS_TCB_ID = idx;
+        // could have some problem here 
         OS_TCB_Tbl[idx].OS_TCB_Stk_Ptr = ptos + stk_size - sizeof(OS_SW_STK) / sizeof(uint32_t) - sizeof(OS_SW_STK) / sizeof(uint32_t);
         break;
       }
@@ -130,6 +135,16 @@ static uint32_t systick_counter;
     __enable_irq();
   }
 
+  /**
+  ******************************************************************************
+  * Private functions
+  ******************************************************************************
+  */
+
+  /**
+   * @brief The OS Scheduler
+   * @details the scheduler for actually scheduling
+   */
   void OS_Scheduler(void){
     uint32_t scratch;
     scratch = __get_PSP();
@@ -139,11 +154,14 @@ static uint32_t systick_counter;
       OS_Cur_Task = 0;
     __set_PSP((uint32_t)OS_TCB_Tbl[OS_Cur_Task].OS_TCB_Stk_Ptr);
   }
-  void OS_Task_Return_Exception(void){
-    while(1);
-  }
 
-static inline void Start_Task(OS_TCB* ptcb){
+/**
+ * @brief Start the very first task
+ * @details start the first task
+ * 
+ * @param ptcb the point to the first switched TCB
+ */
+void Start_Task(OS_TCB* ptcb){
   OS_STK* ptos;
   OS_HW_STK *stk_frame;
   uint32_t scratch;
@@ -152,6 +170,9 @@ static inline void Start_Task(OS_TCB* ptcb){
   stk_frame = (OS_HW_STK*)(ptcb->OS_TCB_Stk_Ptr + sizeof(OS_SW_STK) / sizeof(uint32_t));
   __set_CONTROL(2);
   __set_PSP((uint32_t)ptos);
+  __set_CONTROL(3);
+  __ISB();
+  /*the order here is really important, change it doesn't work */
   scratch = stk_frame->pc;
   __ASM volatile("BX %0" : "=r"(scratch));
 }
@@ -166,12 +187,22 @@ static inline void Start_Task(OS_TCB* ptcb){
  * @brief SysTick_Handler
  * @details the systick handler
  */
-void __attribute__( ( naked ) ) SysTick_Handler(void){
-  uint32_t scratch;
+void SysTick_Handler(void){
   systick_counter++;
   if (systick_counter == 50)
   {
     systick_counter = 0;
+    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+  }
+
+}
+
+/**
+ * @brief PendSV_handler
+ * @details The PendSV handler
+ */
+void __attribute__( ( naked ) ) PendSV_Handler(void){
+    uint32_t scratch;
     __asm volatile("push {lr}\n\t");
     scratch = __get_PSP();
     __asm volatile("STMDB %0!, {r4-r11}\n\t" : "=r" (scratch));
@@ -181,21 +212,19 @@ void __attribute__( ( naked ) ) SysTick_Handler(void){
     __asm volatile("LDMFD %0!, {r4-r11}\n\t" : "=r" (scratch));
     __set_PSP(scratch);
     __asm volatile("pop {pc}\n\t");
-  }
-
 }
-
+ 
 /**
-******************************************************************************
-* Applciation Defination
-******************************************************************************
-*/
-
-
-  /**
  *
   ******************************************************************************
-  * Application functions
+  * Here should sperate to another file.
+  ******************************************************************************
+  */
+
+/**
+ *
+  ******************************************************************************
+  * Application Public functions
   ******************************************************************************
   */
 
